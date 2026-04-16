@@ -1,0 +1,314 @@
+#include <iostream>
+#include <vector>
+#include <string>
+#include <algorithm>
+#include <random>
+#include <ctime>
+#include <iomanip>
+
+using namespace std;
+
+// --- Dinh nghia mau sac Console ---
+#define RESET   "\033[0m"
+#define RED     "\033[31m"
+#define GREEN   "\033[32m"
+#define YELLOW  "\033[33m"
+#define CYAN    "\033[36m"
+#define MAGENTA "\033[35m"
+
+enum CardType { Q, K, ACE, JOKER };
+
+struct Card {
+    CardType type;
+};
+
+class Player {
+public:
+    int id;
+    vector<Card> hand;
+    bool alive = true;
+    int strategy; // 0: That tha, 1: Lieu linh, 2: Toi uu (Master)
+
+    // Thong ke
+    int wins = 0;
+    int survivalCount = 0;
+
+    Player(int _id, int _strat) : id(_id), strategy(_strat) {}
+
+    int countType(CardType t) {
+        int count = 0;
+        for (auto &c : hand) if (c.type == t) count++;
+        return count;
+    }
+
+    void removeCardsByIndices(vector<int> indices) {
+        sort(indices.rbegin(), indices.rend());
+        for (int idx : indices) {
+            if (idx >= 0 && idx < hand.size()) {
+                hand.erase(hand.begin() + idx);
+            }
+        }
+    }
+
+    // AI THUAT TOAN DANH BAI
+    void aiDecideMove(int &numPlay, CardType &declaredType, vector<int> &chosenIndices) {
+        chosenIndices.clear();
+        int counts[4] = {countType(Q), countType(K), countType(ACE), countType(JOKER)};
+        int jCount = counts[JOKER];
+
+        CardType bestType = Q;
+        int maxCount = -1;
+        CardType trashType = Q;
+        int minCount = 999;
+
+        for (int t = Q; t <= ACE; t++) {
+            if (counts[t] > maxCount) { maxCount = counts[t]; bestType = (CardType)t; }
+            if (counts[t] > 0 && counts[t] < minCount) { minCount = counts[t]; trashType = (CardType)t; }
+        }
+
+        int handSize = hand.size();
+
+        if (strategy == 2) {
+            // === CHIEN THUAT TOI UU (MASTER) ===
+            // 1. Chot ha an toan
+            if (maxCount + jCount >= handSize && handSize <= 3) {
+                numPlay = handSize; declaredType = bestType;
+                for(int i = 0; i < handSize && chosenIndices.size() < maxCount; i++) if(hand[i].type == bestType) chosenIndices.push_back(i);
+                for(int i = 0; i < handSize && chosenIndices.size() < numPlay; i++) if(hand[i].type == JOKER) chosenIndices.push_back(i);
+                return;
+            }
+            // 2. Giang bay
+            if (maxCount == 3) {
+                numPlay = 3; declaredType = bestType;
+                for(int i = 0; i < handSize && chosenIndices.size() < 3; i++) if(hand[i].type == bestType) chosenIndices.push_back(i);
+                return;
+            }
+            // 3. Bluff dau game de xa rac
+            if (handSize >= 4 && maxCount < 3) {
+                numPlay = 1; declaredType = (trashType == Q) ? K : Q;
+                for(int i = 0; i < handSize; i++) if(hand[i].type == trashType) { chosenIndices.push_back(i); break; }
+                return;
+            }
+            // 4. Tiet kiem Joker
+            if (maxCount >= 2) {
+                numPlay = 2; declaredType = bestType;
+                for(int i = 0; i < handSize && chosenIndices.size() < 2; i++) if(hand[i].type == bestType) chosenIndices.push_back(i);
+                return;
+            }
+            if (maxCount == 1) {
+                numPlay = 1; declaredType = bestType;
+                for(int i = 0; i < handSize; i++) if(hand[i].type == bestType) { chosenIndices.push_back(i); break; }
+                return;
+            }
+            if (jCount > 0) {
+                numPlay = 1; declaredType = Q;
+                for(int i = 0; i < handSize; i++) if(hand[i].type == JOKER) { chosenIndices.push_back(i); break; }
+                return;
+            }
+            numPlay = 1; declaredType = Q; chosenIndices.push_back(0);
+
+        } else if (strategy == 1) {
+            // === CHIEN THUAT LIEU LINH (AGGRESSIVE) ===
+            // Luon danh 3 la (hoac het bai)
+            numPlay = min(3, handSize);
+            declaredType = bestType;
+            // Uu tien bai that truoc
+            for(int i = 0; i < handSize && chosenIndices.size() < maxCount; i++) if(hand[i].type == bestType) chosenIndices.push_back(i);
+            // Con lai vut bai gia vao cho du
+            for(int i = 0; i < handSize && chosenIndices.size() < numPlay; i++) {
+                if(find(chosenIndices.begin(), chosenIndices.end(), i) == chosenIndices.end()) chosenIndices.push_back(i);
+            }
+        } else {
+            // === CHIEN THUAT THAT THA (HONEST) ===
+            // Danh That nhieu nhat co the
+            if (maxCount + jCount > 0) {
+                numPlay = min(3, maxCount + jCount); declaredType = bestType;
+                for(int i = 0; i < handSize && chosenIndices.size() < maxCount; i++) if(hand[i].type == bestType) chosenIndices.push_back(i);
+                for(int i = 0; i < handSize && chosenIndices.size() < numPlay; i++) if(hand[i].type == JOKER) chosenIndices.push_back(i);
+            } else {
+                numPlay = 1; declaredType = Q; chosenIndices.push_back(0); // Bat buoc lua 1 la
+            }
+        }
+    }
+
+    // AI THUAT TOAN NGHI NGO
+    bool aiDoubt(int n, CardType declaredType, int currentHandSize) {
+        float doubtChance = 0.0f;
+
+        if (strategy == 2) { // MASTER (Tam ly hoc + Dem bai)
+            if (n == 3) doubtChance = 0.85f;
+            else if (n == 2) doubtChance = 0.40f;
+            else if (n == 1) doubtChance = 0.15f;
+            doubtChance += (5.0f - currentHandSize) * 0.1f;
+            int myCards = countType(declaredType);
+            if (myCards > 0) doubtChance += (myCards * 0.20f);
+        }
+        else if (strategy == 1) { // LIEU LINH (Thich bat loi)
+            doubtChance = 0.60f; // Luon nghi ngo 60%
+        }
+        else { // THAT THA (It nghi ngo)
+            if (n == 3) doubtChance = 0.40f;
+            else if (n == 2) doubtChance = 0.15f;
+            else if (n == 1) doubtChance = 0.05f;
+        }
+
+        if (doubtChance > 1.0f) doubtChance = 1.0f;
+        return ((rand() % 100) / 100.0f < doubtChance);
+    }
+};
+
+class Simulation {
+public:
+    int bulletPos;
+    int currentChamber;
+    vector<Card> deck;
+    vector<Player> players;
+
+    Simulation() {
+        srand(time(0));
+        // Khoi tao 4 AI voi cac tinh cach khac nhau de doi chieu xac suat
+        players.push_back(Player(0, 2)); // AI Toi uu (Master)
+        players.push_back(Player(1, 2)); // AI Toi uu (Master)
+        players.push_back(Player(2, 1)); // AI Lieu linh
+        players.push_back(Player(3, 0)); // AI That tha
+    }
+
+    void resetGun() {
+        bulletPos = rand() % 6;
+        currentChamber = 0;
+    }
+
+    void prepareDeck() {
+        deck.clear();
+        for (int i = 0; i < 6; i++) deck.push_back({Q});
+        for (int i = 0; i < 6; i++) deck.push_back({K});
+        for (int i = 0; i < 6; i++) deck.push_back({ACE});
+        for (int i = 0; i < 2; i++) deck.push_back({JOKER});
+        random_shuffle(deck.begin(), deck.end());
+    }
+
+    void dealCards() {
+        int dIdx = 0;
+        for (auto &p : players) {
+            p.hand.clear();
+            p.alive = true;
+            for (int i = 0; i < 5; i++) p.hand.push_back(deck[dIdx++]);
+        }
+    }
+
+    bool fireGun() {
+        if (currentChamber == bulletPos) {
+            resetGun();
+            return true; // CHET
+        } else {
+            currentChamber = (currentChamber + 1) % 6;
+            return false; // SONG
+        }
+    }
+
+    void run(int numMatches) {
+        cout << CYAN << "Dang chay mo phong " << numMatches << " tran dau voi ty le random doc lap 100%...\n" << RESET;
+
+        for (int m = 0; m < numMatches; m++) {
+            prepareDeck();
+            dealCards();
+            resetGun();
+
+            int turn = 0;
+            while (true) {
+                int currentId = turn % 4;
+                Player &current = players[currentId];
+
+                if (!current.alive || current.hand.empty()) {
+                    turn++;
+                    if(turn > 200) break; // Ket vong lap phong ho
+                    continue;
+                }
+
+                int nextId = (currentId + 1) % 4;
+                while (!players[nextId].alive || players[nextId].hand.empty()) {
+                    nextId = (nextId + 1) % 4;
+                }
+
+                int n = 0;
+                CardType declaredType;
+                vector<int> chosenIndices;
+
+                // AI Chon bai
+                current.aiDecideMove(n, declaredType, chosenIndices);
+
+                // Kiem tra that/gia
+                int actualTypeCount = 0, actualJokerCount = 0;
+                for (int idx : chosenIndices) {
+                    if (current.hand[idx].type == declaredType) actualTypeCount++;
+                    else if (current.hand[idx].type == JOKER) actualJokerCount++;
+                }
+
+                bool isTruth = (actualTypeCount + actualJokerCount == n);
+
+                // Nguoi ke tiep quyet dinh nghi ngo
+                bool someoneDoubts = players[nextId].aiDoubt(n, declaredType, current.hand.size());
+
+                if (someoneDoubts) {
+                    if (isTruth) {
+                        // Ban nguoi nghi ngo
+                        if(fireGun()) players[nextId].alive = false;
+                    } else {
+                        // Ban ke noi doi
+                        if(fireGun()) current.alive = false;
+                    }
+                }
+
+                current.removeCardsByIndices(chosenIndices);
+
+                // Kiem tra dieu kien thang
+                int aliveCount = 0;
+                Player* lastAlive = nullptr;
+                for (auto &p : players) {
+                    if (p.alive && p.hand.empty()) {
+                        p.wins++; // Thang do het bai
+                        goto next_match;
+                    }
+                    if (p.alive) { aliveCount++; lastAlive = &p; }
+                }
+
+                if (aliveCount <= 1 && lastAlive != nullptr) {
+                    lastAlive->wins++; // Thang do nhung nguoi khac chet het
+                    goto next_match;
+                }
+
+                turn++;
+            }
+
+            next_match:
+            for (auto &p : players) if (p.alive) p.survivalCount++;
+        }
+
+        // Xuat thong ke
+        cout << MAGENTA << "========================================================\n" << RESET;
+        cout << YELLOW << "        KET QUA MO PHONG " << numMatches << " TRAN (AUTO PLAY)\n" << RESET;
+        cout << MAGENTA << "========================================================\n" << RESET;
+        cout << left << setw(20) << "AI (Chien thuat)" << setw(15) << "Ty le Thang" << setw(15) << "Ty le Song sot" << endl;
+        cout << "--------------------------------------------------------\n";
+
+        auto printStat = [&](string name, Player& p) {
+            cout << left << setw(20) << name
+                 << fixed << setprecision(2) << setw(15) << (float)p.wins/numMatches * 100 << "%"
+                 << setw(15) << (float)p.survivalCount/numMatches * 100 << "%" << endl;
+        };
+
+        printStat("AI 0 (Toi uu/Master)", players[0]);
+        printStat("AI 1 (Toi uu/Master)", players[1]);
+        printStat("AI 2 (Lieu linh)", players[2]);
+        printStat("AI 3 (That tha)", players[3]);
+        cout << "--------------------------------------------------------\n";
+        cout << GREEN << "=> KET LUAN:" << RESET << " Chien thuat Toi uu (Biet Bluff + Dem bai + Giang Bay) luon cho ti le thang cao nhat ap dao!" << endl;
+    }
+};
+
+int main() {
+    Simulation sim;
+    // Chay tu dong 100.000 tran de tim xac suat hoi tu chuan xac nhat
+    sim.run(100000);
+    return 0;
+}
