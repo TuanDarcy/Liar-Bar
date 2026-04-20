@@ -1,7 +1,7 @@
 1 bàn 4 người gồm 20 lá 
 6 Q, 6 K , 6 ÁT , 2 JOKER 
 
-ĐẠN NẠP 1 VIÊN TRONG 6 LỖ ĐẠN , TỈ LỆ CHẾT LÀ 1/6
+ĐẠN NẠP 1 VIÊN TRONG 3 LỖ ĐẠN , TỈ LỆ CHẾT LÀ 1/3
 
 Mỗi người phát 5 lá , hết bài 
 
